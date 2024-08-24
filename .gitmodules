@@ -1,0 +1,3 @@
+[submodule "frida_interceptor_scripts"]
+	path = frida_interceptor_scripts
+	url = https://github.com/mystery2mastery/frida_interceptor_scripts
