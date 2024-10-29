@@ -123,33 +123,82 @@ def call_handler(event):    # Example: ["call", "0x77477b26", "0x77497e44", 1]
     event_str = addr_handler(event)
     all_call_events_list.append(event_str)
 
+
+# Parse syscall event
+def parse_syscall_event(event): # [currMnemonic, currAddr, rsp_ret, syscall_id, arg0, arg1, arg2, arg3, JSON.stringify(context)]
+    fromModule = all_modules_obj.find_module_by_address(int(event[1],0))
+    toModule = all_modules_obj.find_module_by_address(int(event[2],0))
+    
+    syscall_id = int(event[3],0)
+    syscall_name = syscall_id_to_name[syscall_id]
+    
+    if toModule is None:
+        if fromModule is None:
+            event_str = (f"[None] {event[1]} , {event[0]} {event[2]} [None], syscall_id: {event[3]}, syscall_name: {syscall_name}, arg0(rcx): {event[4]}, arg1(rdx): {event[5]}, arg2(r8): {event[6]}, arg3(r9): {event[7]}, full_context: {event[8]} \n")
+        else:
+            event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} , {event[0]} {event[2]} [None] , syscall_id: {event[3]}, syscall_name: {syscall_name}, arg0(rcx): {event[4]}, arg1(rdx): {event[5]}, arg2(r8): {event[6]}, arg3(r9): {event[7]}, full_context: {event[8]} \n")
+    else:
+        if fromModule is None:
+            event_str = (f"[None] {event[1]} , {event[0]} {hex(int(event[2],0) - toModule.base)} [{toModule.name}] , syscall_id: {event[3]}, syscall_name: {syscall_name},  arg0(rcx): {event[4]}, arg1(rdx): {event[5]}, arg2(r8): {event[6]}, arg3(r9): {event[7]}, full_context: {event[8]} \n")
+        else:
+            event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} , {event[0]} {hex(int(event[2],0) - toModule.base)} [{toModule.name}] , syscall_id: {event[3]}, syscall_name: {syscall_name}, arg0(rcx): {event[4]}, arg1(rdx): {event[5]}, arg2(r8): {event[6]}, arg3(r9): {event[7]}, full_context: {event[8]} \n")            
+    
+    return event_str
+
+
 # If a event is in the form [addr1, addr2, .....]. If you want to resovle the called export.
 def addr_handler(event):
     global all_modules_obj
     global allExports    
 
-    fromModule = all_modules_obj.find_module_by_address(int(event[1],0));
-    toModule = all_modules_obj.find_module_by_address(int(event[2],0));
+    if event[0] == 'syscall':
+        event_str = parse_syscall_event(event)
+        return event_str
+    
+    fromModule = all_modules_obj.find_module_by_address(int(event[1],0))
+    toModule = all_modules_obj.find_module_by_address(int(event[2],0))
 
     if toModule is None: 
         if fromModule is None:
-            event_str = (f"[None] {event[1]} call {event[2]} [None] {event[0]} {event[3]}\n")
+            event_str = (f"[None] {event[1]} , {event[0]} {event[2]} [None] {event[0]} {event[3]}\n")
         else:
-            event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} call {event[2]} [None] {event[0]} {event[3]}\n")
+            event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} , {event[0]} {event[2]} [None] {event[0]} {event[3]}\n")
     else:
         exp_name = find_export_name_by_address(allExports, toModule.name, event[2]) #we are directly matching the address as string with the dictionary key.
         if exp_name == None:
             if fromModule is None:
-                event_str = (f"[None] {event[1]} call {hex(int(event[2],0) - toModule.base)} [{toModule.name}] {event[0]} {event[3]}\n")
+                event_str = (f"[None] {event[1]} , {event[0]} {hex(int(event[2],0) - toModule.base)} [{toModule.name}] {event[0]} {event[3]}\n")
             else:
-                event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} call {hex(int(event[2],0) - toModule.base)} [{toModule.name}] {event[0]} {event[3]}\n")
+                event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} , {event[0]} {hex(int(event[2],0) - toModule.base)} [{toModule.name}] {event[0]} {event[3]}\n")
         else:
             if fromModule is None:
-                event_str = (f"[None] {event[1]} call {hex(int(event[2],0) - toModule.base)} [{toModule.name}->{exp_name}] {event[0]} {event[3]}\n")
+                event_str = (f"[None] {event[1]} , {event[0]} {hex(int(event[2],0) - toModule.base)} [{toModule.name}->{exp_name}] {event[0]} {event[3]}\n")
             else:
-                event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} call {hex(int(event[2],0) - toModule.base)} [{toModule.name}->{exp_name}] {event[0]} {event[3]}\n")
+                event_str = (f"[{fromModule.name}] {hex(int(event[1],0) - fromModule.base)} , {event[0]} {hex(int(event[2],0) - toModule.base)} [{toModule.name}->{exp_name}] {event[0]} {event[3]}\n")
 
     return event_str
+
+
+collected_apis = []
+
+def parse_api(api_event):
+    global all_modules_obj
+    
+    fromModule = all_modules_obj.find_module_by_address(int(api_event["retnaddr"],0));
+    
+    if fromModule is None:
+        api_event["retnaddr"] = "None " + api_event["retnaddr"]
+    else:
+        api_event["retnaddr"] = fromModule.name + "+" + hex(int(api_event["retnaddr"],0) - fromModule.base)
+    
+    return api_event
+
+def parse_apis(api_events):    
+    for api_event in api_events:
+        parse_api(api_event)
+        
+    
+    # return api_events
 
 '''
 // Receive the info from frida javascript client side.
@@ -189,9 +238,22 @@ def process_recvd_data(command, result):
             # json.dump(result, f, indent=2)
             # f.write("\n")        
 
+    if command == 'api':
+        global collected_apis
+        print(result)
+        collected_apis.append(result)
+        
+        # result = parse_api(result)
+        # print(result["retnaddr"])
+        # with open('[out]api.log', 'a') as f:
+            # # json.dump(result, f, indent=2)
+            # json.dump(result, f)
+            # f.write("\n")
+            
     if command == 'test':
-        with open('[out]test.log', 'w') as f:
+        with open('[out]test.log', 'a') as f:
             json.dump(result, f, indent=2)
+            # json.dump(result, f)
             f.write("\n")   
 
 def parse_dyn_instructions(dynEvents):
@@ -239,16 +301,37 @@ def write_events(filename, events_list):
     with open(filename, 'a') as f:
         f.writelines(events_list)
 
-def save_trace(bbtrace_f, calltrace_f, dyncalls_f):
+def write_api(filename, result):
+    with open(filename, 'a') as f:
+        # json.dump(result, f, indent=2)
+        # json.dump(result, f)
+        # f.write("\n")
+        for api_event in result:
+            f.write(str(api_event))
+            f.write("\n")
+
+
+def save_trace(bbtrace_f, calltrace_f, dyncalls_f, apis_f):
     global all_compile_events_list
     global all_call_events_list
     global all_dyncalls_list
     global crude_dyncalls_list
+    global collected_apis
     
     
-    parse_dyn_instructions(crude_dyncalls_list)
+    with open("dyn_api.log", 'a') as f:
+        json.dump(crude_dyncalls_list, f)
+        f.write("\n")       
     
-    write_header(bbtrace_f)    
+    
+       
+    parse_dyn_instructions(crude_dyncalls_list)    
+    # print(type(collected_apis))
+    # print(type(all_call_events_list))
+    parse_apis(collected_apis)
+    # print(collected_apis)
+    
+    write_header(bbtrace_f)
     print("[+] Successfully written Header (containing module info)")
     write_events(bbtrace_f, all_compile_events_list)
     print("[+] Sucessfully written Basic Blocks Trace")
@@ -262,6 +345,13 @@ def save_trace(bbtrace_f, calltrace_f, dyncalls_f):
     print("[+] Successfully written Header (containing module info)")
     write_events(dyncalls_f, all_dyncalls_list)
     print("[+] Sucessfully written Dynamic Calls")
+    
+    write_header(apis_f)
+    print("[+] Successfully written Header (containing module info)")
+    write_api(apis_f, collected_apis)
+    print("[+] Sucessfully written API data")
+    
+    # write_events(apis_f, collected_apis)
 
 '''
 // Terminate the process after saving the data.
@@ -441,29 +531,35 @@ Stalker.follow(mainThread.id, {\n"""
 			// resolving dynamic calls
             if (instruction.mnemonic == 'call') {				
 				if (instruction.operands[0].type == 'mem'){
-					// console.log(JSON.stringify(instruction, null, 4));
+					//console.log(JSON.stringify(instruction, null, 4));
 					// console.log(instruction.operands[0].value['disp']);
 			
 					if (instruction.operands[0].value['base']){	// addr relative to a register. Ex: call dword ptr [ebx + 0xc]
-						let usedreg = instruction.operands[0].value['base']
-						let offsetvalue = instruction.operands[0].value['disp']
-						// console.log("reg:", usedreg,"disp:", offsetvalue);
+						let usedreg = instruction.operands[0].value['base'];
+						let offsetvalue = instruction.operands[0].value['disp'];
+                        let opSize = 0;
+                        if (usedreg == 'rip') // Ex: call qword ptr [rip + 0x19a56d]   In these cases, you need to count the size of instruction also.
+                        {
+                            opSize = instruction.size;
+                        }
+                        
+						//console.log("reg:", usedreg,"disp:", offsetvalue, "opSize:", opSize);
 						
 						iterator.putCallout(function(context) {					
-							let total = parseInt(context[usedreg]) + parseInt(offsetvalue);
-							total = '0x' + total.toString(16);
-							// console.log("reg:",usedreg, context[usedreg], "total:", total);
+							let total = parseInt(context[usedreg]) + parseInt(offsetvalue) + parseInt(opSize);
+							//total = '0x' + total.toString(16);
+							//console.log("reg:",usedreg, context[usedreg], "total:", total);
 							let toPtr = '0x' + ptr(total).readPointer().toString(16);
-							// console.log(currMnemonic, currAddr, toPtr, currOpStr);
+							//console.log(currMnemonic, currAddr, toPtr, currOpStr);
 							instructionBuffer.push([currMnemonic, currAddr, toPtr, currOpStr]);
 						});
 						// console.log(JSON.stringify(instruction, null, 4));
 						
 					}
-					else{	// direct address. Ex: call dword ptr [0x76231245]					
+					else{	// direct address. Ex: call dword ptr [0x76231245]		--- usually seen only in 32bit code. Not seen in 64bit code.			
 						let outvalue = '0x' + instruction.operands[0].value['disp'].toString(16);
 						let finapPtr = '0x' + ptr(outvalue).readPointer().toString(16);
-						// console.log(currMnemonic, currAddr, finapPtr, currOpStr);
+						//console.log(currMnemonic, currAddr, finapPtr, currOpStr);
 						instructionBuffer.push([currMnemonic, currAddr, finapPtr, currOpStr]);
 						
 					}					
@@ -482,35 +578,64 @@ Stalker.follow(mainThread.id, {\n"""
             // resolving dynamic jmps
             if (instruction.mnemonic == 'jmp') {					
                 if (instruction.operands[0].type == 'mem'){
-                    // console.log(JSON.stringify(instruction, null, 4));
+                     //console.log(JSON.stringify(instruction, null, 4));
                     // console.log(instruction.operands[0].value['disp']);
             
-                    if (instruction.operands[0].value['index']){	// addr relative to a register. Ex: jmp dword ptr [ebx*2 + 0x7c431223]
+                    if (instruction.operands[0].value['base']){
+						let usedreg = instruction.operands[0].value['base'];
+						let offsetvalue = instruction.operands[0].value['disp'];
+                        let opSize = 0;
+                        if (usedreg == 'rip') // Ex: call qword ptr [rip + 0x19a56d]   In these cases, you need to count the size of instruction also.
+                        {
+                            opSize = instruction.size;
+                        }
+                        
+						//console.log("reg:", usedreg,"disp:", offsetvalue, "opSize:", opSize);
+						
+						iterator.putCallout(function(context) {					
+							let total = parseInt(context[usedreg]) + parseInt(offsetvalue) + parseInt(opSize);
+							//total = '0x' + total.toString(16);
+							//console.log("reg:",usedreg, context[usedreg], "total:", total);
+							let toPtr = '0x' + ptr(total).readPointer().toString(16);
+							//console.log(currMnemonic, currAddr, toPtr, currOpStr);
+							instructionBuffer.push([currMnemonic, currAddr, toPtr, currOpStr]);
+						});
+						// console.log(JSON.stringify(instruction, null, 4));                        
+                    }                    
+                    else if (instruction.operands[0].value['index']){	// addr relative to a register. Ex: jmp dword ptr [ebx*2 + 0x7c431223]
                         let usedreg = instruction.operands[0].value['index']
                         let usedscale = instruction.operands[0].value['scale']
                         let offsetvalue = instruction.operands[0].value['disp']
-                        // console.log("reg:", usedreg,"disp:", offsetvalue);
+                        
+                        //console.log("reg:", usedreg,"disp:", offsetvalue);
+                        
+                        let opSize = 0;
+                        if (usedreg == 'rip') // Ex: call qword ptr [rip + 0x19a56d]   In these cases, you need to count the size of instruction also.
+                        {
+                            opSize = instruction.size;
+                        }                        
+                        
                         
                         iterator.putCallout(function(context) {					
-                            let total = parseInt(context[usedreg])*parseInt(usedscale) + parseInt(offsetvalue);
+                            let total = parseInt(context[usedreg])*parseInt(usedscale) + parseInt(offsetvalue) + parseInt(opSize) ;
                             total = '0x' + total.toString(16);
-                            // console.log("reg:",usedreg, context[usedreg], "total:", total);
+                            //console.log("reg:",usedreg, context[usedreg], "total:", total);
                             let toPtr = '0x' + ptr(total).readPointer().toString(16);
-                            // console.log(currMnemonic, currAddr, toPtr, currOpStr);
+                            //console.log(currMnemonic, currAddr, toPtr, currOpStr);
                             instructionBuffer.push([currMnemonic, currAddr, toPtr, currOpStr]);
                         });
                         // console.log(JSON.stringify(instruction, null, 4));
                         
                     }
-                    else{	// direct address. Ex: call dword ptr [0x76231245]					
+                    else{	// direct address. Ex: jmp dword ptr [0x76231245]					
                         let outvalue = '0x' + instruction.operands[0].value['disp'].toString(16);
                         let finapPtr = '0x' + ptr(outvalue).readPointer().toString(16);
                         // console.log(currMnemonic, currAddr, finapPtr, currOpStr);
                         instructionBuffer.push([currMnemonic, currAddr, finapPtr, currOpStr]);
                         
-                    }					
+                    }				
                 }
-                else if (instruction.operands[0].type == 'reg'){ // Ex: call esi
+                else if (instruction.operands[0].type == 'reg'){ // Ex: jmp esi
                     iterator.putCallout(function(context) {
                         instructionBuffer.push([currMnemonic, currAddr, context[currOpStr], currOpStr]);
                     });
@@ -522,7 +647,28 @@ Stalker.follow(mainThread.id, {\n"""
         js_code += """
             // Syscall tracing code
             if (instruction.mnemonic == 'syscall') {
+                
+
+                
+                
                 // Your syscall tracing code goes here
+                iterator.putCallout(function(context) {
+                    let syscall_id = context.rax;
+                    let arg0 = context.rcx;
+                    let arg1 = context.rdx;
+                    let arg2 = context.r8;
+                    let arg3 = context.r9;
+                    let rsp_ret = context.rsp;
+                    
+                    instructionBuffer.push([currMnemonic, currAddr, rsp_ret.readPointer(), syscall_id, arg0, arg1, arg2, arg3, JSON.stringify(context)]);
+                });
+                
+                
+                instruction = iterator.next();
+                console.log(JSON.stringify(instruction, null, 4));                
+                
+                
+                
             }\n"""
 
     # send the collected instructions
@@ -570,13 +716,113 @@ rpc.exports = {
 
     return js_code
 
+'''
+    syscall generation code
+'''
+import pefile
+import struct
+import platform
+import pickle
 
+syscall_name_to_id = {} # dict
+syscall_id_to_name = {} # dict
+
+def is_syscall_stub(code):
+    # Check if the code matches the syscall stub pattern
+    return (
+        len(code) >= 24 and
+        code[0:4] == b'\x4C\x8B\xD1\xB8' and
+        code[8:11] == b'\xF6\x04\x25' and
+        code[16:24] == b'\x75\x03\x0F\x05\xC3\xCD\x2E\xC3'
+    )
+
+def extract_syscall_id(code):
+    # Extract syscall ID from the code
+    syscall_id = struct.unpack('I', code[4:8])[0]  # Assuming syscall id is a 4-byte little-endian integer
+    return syscall_id
+
+def parse_sys_exports():
+    syscall_name_to_id  # Dictionary to store syscall names and IDs
+    syscall_id_to_name  # Dictionary to store syscall IDs and names
+    
+    dll_paths = ["C:\\Windows\\System32\\ntdll.dll", "C:\\Windows\\System32\\win32u.dll"]  # Change this path accordingly
+    for dll_path in dll_paths:
+        try:
+            pe = pefile.PE(dll_path)
+            if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
+                export_table = pe.DIRECTORY_ENTRY_EXPORT.symbols
+
+                for exp in export_table:
+                    if exp.address:
+                        export_offset = pe.get_offset_from_rva(exp.address)
+                        code = pe.get_data(exp.address, 24)
+                        if is_syscall_stub(code):
+                            syscall_id = extract_syscall_id(code)
+                            syscall_name = exp.name.decode() if exp.name else 'No Name'
+                            syscall_name_to_id[syscall_name] = syscall_id
+                            syscall_id_to_name[syscall_id] = syscall_name
+
+        except Exception as e:
+            print(f"Error: {e}")
+    
+    return syscall_name_to_id, syscall_id_to_name
+
+# Usage:
+# syscall_id_to_name[0xf]   or    syscall_id_to_name[15]     # You can directly use an int or hex value as key. The output string could be Nt* or Zw*.
+# syscall_name_to_id['NtClose']    or    syscall_name_to_id['ZwClose']      # The output is an integer. You may need to convert to hex or string if needed.
+
+def save_to_disk(filename, data):
+    with open(filename, 'wb') as f:
+        pickle.dump(data, f)
+
+def load_from_disk(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+def get_os_version_info():
+    # Get OS information
+    return f"{platform.system()} {platform.release()} {platform.version()}"
+
+def check_os_version(os_version_file):
+    if os.path.exists(os_version_file):
+        stored_os_version = load_from_disk(os_version_file)
+        current_os_version = get_os_version_info()
+        return stored_os_version == current_os_version
+    return False
+
+
+def generate_syscall_ids():
+    global syscall_name_to_id
+    global syscall_id_to_name   
+    
+    name_to_id_file = 'syscall_name_to_id.pkl'
+    id_to_name_file = 'syscall_id_to_name.pkl'
+    os_version_file = 'os_version.pkl'
+
+    # Check if the dictionaries already exist on disk and if the OS version is the same
+    if os.path.exists(name_to_id_file) and os.path.exists(id_to_name_file) and check_os_version(os_version_file):
+        print("Loading syscall dictionaries from disk...")
+        syscall_name_to_id = load_from_disk(name_to_id_file)
+        syscall_id_to_name = load_from_disk(id_to_name_file)
+    else:
+        print("Generating syscall dictionaries...")
+        syscall_name_to_id, syscall_id_to_name = parse_sys_exports()
+        # Save the generated dictionaries to disk
+        save_to_disk(name_to_id_file, syscall_name_to_id)
+        save_to_disk(id_to_name_file, syscall_id_to_name)
+        # Save the current OS version to disk
+        save_to_disk(os_version_file, get_os_version_info())
+    
+    # Print OS info
+    print("OS Info:")
+    print(f"[{get_os_version_info()}]\n")       
 
 def main():
     try:
         output_bbtrace_file = '[out]bb_trace.log'
         output_calltrace_file = '[out]call_trace.log'
         output_dyncalls_file = '[out]dynamic_calls.log'
+        output_api_file = '[out]api.log'
         
         # javascript instrumentation logic file
         _SCRIPT_FILE = 'tracer_logic.js'
@@ -614,9 +860,13 @@ def main():
                 elif value in ("false", "no", "0"):
                     settings[key.strip()] = False
                     
-        print("\nFrida Settings:")
+        print("\nFrida Settings:")        
         for key, value in settings.items():
             print(f"{key}: {value}")
+        
+        if (settings['trace_syscalls'] == True):
+            generate_syscall_ids()              
+        
         
         # Get API names from the .ini file
         api_names = get_api_names_from_ini(config)   
@@ -656,7 +906,7 @@ def main():
     except KeyboardInterrupt:        
         # script.exports_sync.callgetleftoverevents("1")
         print(f"[*] Writing all the trace data .....")
-        save_trace(output_bbtrace_file, output_calltrace_file, output_dyncalls_file)
+        save_trace(output_bbtrace_file, output_calltrace_file, output_dyncalls_file, output_api_file)
         print("[*] Ending the process ...")
         kill_process(pid)  # Force kill the process
 
